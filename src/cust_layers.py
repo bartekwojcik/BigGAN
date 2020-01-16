@@ -7,7 +7,7 @@ ortho_regr_2D = orthogonal_regularization_2D(0.0001)
 ortho_regr_ND = orthogonal_regularization_ND(0.0001)
 
 
-def linear(x, n_units, use_bias=True, use_spectral_norm= True, scope="linear", kernel_regularizer=ortho_regr_2D):
+def linear(x, n_units, use_bias=True, use_spectral_norm= True, kernel_regularizer=ortho_regr_2D):
 
     x = tf.keras.layers.Flatten()(x)
     shape = x.get_shape().as_list()
@@ -19,9 +19,14 @@ def linear(x, n_units, use_bias=True, use_spectral_norm= True, scope="linear", k
 
         x = tf.matmul(x, spectral_normalisation(w)) + bias
         return x
+
     else:
-        x = tf.keras.layers.Dense(units=n_units, kernel_initializer=truncated_normal_init, kernel_regularizer=kernel_regularizer,
-                                  use_bias=use_bias)
+        x = tf.keras.layers.Dense(units=n_units,
+                                  kernel_initializer=truncated_normal_init,
+                                  kernel_regularizer=kernel_regularizer,
+                                  use_bias=use_bias)(x)
+
+        return x
 
 
 def conditioned_batch_norm(x, z, is_training):
@@ -37,8 +42,8 @@ def conditioned_batch_norm(x, z, is_training):
     decay = 0.9
     epsilon = 1e-05
 
-    test_mean = tf.Variable(shape=[c], dtype=tf.float32, initial_value=tf.constant_initializer(0.0), trainable=False)
-    test_var = tf.Variable(shape=[c], dtype=tf.float32, initial_value=tf.constant_initializer(1.0), trainable=False)
+    test_mean = tf.Variable(dtype=tf.float32, initial_value=tf.constant_initializer(0.0)(shape=[c]), trainable=False)
+    test_var = tf.Variable(dtype=tf.float32, initial_value=tf.constant_initializer(1.0)(shape=[c]), trainable=False)
 
     beta = linear(z,n_units=c,kernel_regularizer=None)
     gamma = linear(z,n_units=c,kernel_regularizer=None)
@@ -49,8 +54,8 @@ def conditioned_batch_norm(x, z, is_training):
     if is_training:
         batch_mean, batch_var = tf.nn.moments(x, [0, 1, 2])
 
-        ema_mean = tf.assign(test_mean, test_mean * decay + batch_mean * (1 - decay))
-        ema_var = tf.assign(test_var, test_var * decay + batch_var * (1 - decay))
+        ema_mean = tf.compat.v1.assign(test_mean, test_mean * decay + batch_mean * (1 - decay))
+        ema_var = tf.compat.v1.assign(test_var, test_var * decay + batch_var * (1 - decay))
 
         with tf.control_dependencies([ema_mean, ema_var]):
             return tf.nn.batch_normalization(x, batch_mean, batch_var, beta, gamma, epsilon)
@@ -63,19 +68,32 @@ def deconv(x, channels, kernel, strides, use_bias, use_spectral):
 
     x_shape = x.get_shape().as_list()
 
-    output_shape = [x_shape[0], x_shape[1] * strides, x_shape[2] * strides, channels]
+    output_shape = (x_shape[0], x_shape[1] * strides, x_shape[2] * strides, channels)
 
     if use_spectral:
-        w = tf.Variable(shape=[kernel, kernel, channels, x_shape[-1]], initial_value=truncated_normal_init,constraint=ortho_regr_ND)
-        x = tf.nn.conv2d_transpose(x, filters=spectral_normalisation(w), output_shape=output_shape, strides=[1, strides, strides,1], padding='same' )
+        # w = tf.Variable(initial_value=truncated_normal_init(shape=[kernel, kernel, channels, x_shape[-1]]),constraint=ortho_regr_ND)
+        # x = tf.nn.conv2d_transpose(x, filters=spectral_normalisation(w), output_shape=output_shape, strides=[1, strides, strides,1], padding='same' )
+        #
+        # if use_bias:
+        #     bias = tf.Variable(shape=[channels], initial_value=tf.constant_initializer(0.0))
+        #     x = tf.nn.bias_add(x, bias)
 
-        if use_bias:
-            bias = tf.Variable(shape=[channels], initial_value=tf.constant_initializer(0.0))
-            x = tf.nn.bias_add(x, bias)
+
+        x = tf.keras.layers.Conv2DTranspose(filters=channels,
+                                            kernel_size= [kernel, kernel],
+                                            kernel_initializer= truncated_normal_init,
+                                            kernel_regularizer=spectral_normalisation,
+                                            kernel_constraint= ortho_regr_ND,
+                                            strides=[strides,strides],
+                                            padding='same',
+                                            use_bias=use_bias)(x)
 
         return x
     else:
-        x = tf.keras.layers.Conv2DTranspose(filters = channels, kernel_size=kernel, kernel_initializer=truncated_normal_init, kernel_regularizer=ortho_regr_ND, padding='same')(x)
+        x = tf.keras.layers.Conv2DTranspose(filters = channels,
+                                            kernel_size=kernel,
+                                            kernel_initializer=truncated_normal_init,
+                                            kernel_regularizer=ortho_regr_ND, padding='same')(x)
 
         return x
 
@@ -115,7 +133,7 @@ def resblock_up(x_init, z, channels, use_bias=True, is_training=True, use_spectr
     x = tf.nn.relu(x)
     x = deconv(x, channels, kernel=3, strides=1, use_bias=use_bias, use_spectral=use_spectral)
 
-    x_init = deconv(x, channels, kernel=3, strides=2, use_bias=use_bias, use_spectral=use_spectral)
+    x_init = deconv(x_init, channels, kernel=3, strides=2, use_bias=use_bias, use_spectral=use_spectral)
 
     return x + x_init
 

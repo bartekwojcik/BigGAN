@@ -18,15 +18,16 @@ class BigGAN128:
         self.n_channels = n_channels
 
 
-    def define_generator(self, z, is_trainig=True):
+    def define_generator(self, z_dim=120, is_trainig=True):
 
+        in_lat = tf.keras.layers.Input(shape=(z_dim,))
         use_spectral = True
-        z_dim = z.get_shape().as_list()[3]
+
         assert z_dim == 120, "for now i just want 120 noise dimention"
 
         #for now i am not conditioning generator (coudnt find any good sources so first i will they way i know it works)
 
-        z_split = tf.split(z, num_or_size_splits = 6, axis=-1)
+        z_split = tf.split(in_lat, num_or_size_splits = 6, axis=-1)
 
         ch = 16 * self.n_channels
         x = linear(z_split[0], n_units= 4 * 4 * ch)
@@ -56,9 +57,11 @@ class BigGAN128:
         x = tf.nn.relu(x)
         x = conv(x, channels= 3, kernel=3, stride=1, pad=1, use_bias=False, use_spectral=use_spectral)
 
-        x = tf.nn.tanh(x)
+        out = tf.nn.tanh(x)
 
-        return x
+        g_model = tf.keras.models.Model(in_lat, out)
+
+        return g_model
 
     def define_discriminator(self, in_shape=(128,128,3), n_classes=5, is_training=True):
 
@@ -85,7 +88,7 @@ class BigGAN128:
 
         x = global_sum_pooling(x)
 
-        x = linear(x, n_units=1, use_spectral_norm=use_spectral)
+        x = linear(x, n_units=n_classes, use_spectral_norm=use_spectral)
 
         d_model = tf.keras.models.Model(inputs, x)
 
@@ -94,8 +97,11 @@ class BigGAN128:
 
     def define_gan(self, g_model, d_model):
         d_model.trainable = False
+
         gan_output = d_model(g_model.output)
+
         opt = tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5)
+
         model = tf.keras.models.Model(g_model.input, gan_output)
         model.compile(loss='binary_crossentropy', optimizer=opt)
         return model
