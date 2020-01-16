@@ -14,8 +14,8 @@ def linear(x, n_units, use_bias=True, use_spectral_norm= True, scope="linear", k
     n_channels = shape[-1]
 
     if use_spectral_norm:
-        w = tf.Variable(name="weights", shape=[n_channels, n_units], dtype=tf.float32, initial_value=truncated_normal_init, constraint=kernel_regularizer)
-        bias =  tf.Variable(name="bias", shape=[n_units], initial_value=tf.keras.initializers.Constant(0.0))
+        w = tf.Variable(name="weights", dtype=tf.float32, initial_value=truncated_normal_init(shape=[n_channels, n_units]), constraint=kernel_regularizer)
+        bias =  tf.Variable(name="bias", initial_value=tf.keras.initializers.Constant(0.0)(shape=[n_units]))
 
         x = tf.matmul(x, spectral_normalisation(w)) + bias
         return x
@@ -83,7 +83,7 @@ def deconv(x, channels, kernel, strides, use_bias, use_spectral):
 def resblock_down(x_init, channels, use_bias=True, is_training=True, use_spectral=True):
 
     x = tf_batch_norm(x_init, is_training)
-    x = tf.nn.relu(x)
+    x = tf.keras.layers.ReLU()(x) #x = tf.nn.relu(x)
     x = conv(x, channels, kernel=3, stride=2, pad=1, use_bias=use_bias, use_spectral=use_spectral, kernel_regularizer=None)
 
     x = tf_batch_norm(x, is_training)
@@ -139,13 +139,25 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True,
             x = tf.pad(x, [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]], mode='REFLECT')
 
     if use_spectral:
-        w = tf.Variable(shape=[kernel, kernel, x.get_shape()[-1], channels], initial_value=truncated_normal_init, constraint=kernel_regularizer)
+        # w = tf.Variable(shape=[kernel, kernel, x.get_shape()[-1], channels], initial_value=truncated_normal_init, constraint=kernel_regularizer)
+        #
+        # x = tf.nn.conv2d(input=x, filter=spectral_normalisation(w), strides=[1,stride,stride,1], padding='valid')
 
-        x = tf.nn.conv2d(input=x, filter=spectral_normalisation(w), strides=[1,stride,stride,1], padding='valid')
+        # if use_bias:
+        #     bias = tf.Variable(shape=[channels], initial_value=tf.constant_initializer(0.0))
+        #     x = tf.nn.bias_add(x, bias)
 
-        if use_bias:
-            bias = tf.Variable(shape=[channels], initial_value=tf.constant_initializer(0.0))
-            x = tf.nn.bias_add(x, bias)
+        x = tf.keras.layers.Conv2D(
+            filters= channels,
+            kernel_size= [kernel, kernel],
+            kernel_initializer= truncated_normal_init,
+            kernel_regularizer=spectral_normalisation,
+            kernel_constraint=kernel_regularizer,
+            strides=[stride,stride],
+            padding='valid',
+            use_bias=use_bias)(x)
+
+
 
     else:
         x = tf.keras.layers.Conv2D(filters=channels, kernel_size=kernel, kernel_initializer=truncated_normal_init,
@@ -154,7 +166,7 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True,
     return x
 
 
-def self_attention(x, n_channels, use_spectral):
+def self_attention(x, n_channels, use_spectral, ):
     """
     https://arxiv.org/pdf/1711.07971.pdf
     https://arxiv.org/pdf/1805.08318.pdf
@@ -168,20 +180,22 @@ def self_attention(x, n_channels, use_spectral):
     """
     # divided by 8 because in paper C_hat = C /8
     f = conv(x, n_channels // 8, kernel=1, stride=1, use_spectral=use_spectral)
-    f = tf.keras.layers.MaxPool2D(x, pool_size=2, strides=2, padding='SAME')(f)
+    f = tf.keras.layers.MaxPool2D(pool_size=2, strides=2, padding='SAME')(f)
 
     g = conv(x, n_channels // 8, kernel=1, stride=1, use_spectral=use_spectral)
 
     h= conv(x, n_channels // 2, kernel=1, stride=1, use_spectral=use_spectral)
+    h = tf.keras.layers.MaxPool2D(pool_size=2,strides=2, padding='SAME')(h)
 
     s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True)
 
     beta = tf.nn.softmax(s)  # attention map
 
     o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
-    gamma = tf.Variable( shape=[1], initial_value=tf.constant_initializer(0.0))
+    gamma = tf.Variable(0.0)
 
-    o = tf.reshape(o, shape=[x.shape[0], x.shape[1], x.shape[2], n_channels // 2])  # [bs, h, w, C]
+    sh = x.get_shape().as_list()
+    o = tf.keras.layers.Reshape((sh[1], sh[2], n_channels // 2))(o)  # [bs, h, w, C]
 
     o = conv(o, n_channels, kernel=1, stride=1, use_spectral=use_spectral)
     x = gamma * o + x

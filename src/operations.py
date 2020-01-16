@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.keras import backend as K
 
 
 def orthogonal_regularization_ND(scale):
@@ -8,17 +9,18 @@ def orthogonal_regularization_ND(scale):
     :return:
     """
     def regularization(w):
-        _, _, _, c = w.get_shape().as_list()
+        #_, _, _, c = w.get_shape().as_list()
+        _, _, _, c = K.int_shape(w)
 
-        w = tf.reshape(w, [-1, c])
+        w = K.reshape(w, [-1, c])
 
-        w_t = tf.transpose(w)
-        identity = tf.eye(c)
+        w_t = K.transpose(w)
+        identity = K.eye(c)
 
-        w_t_w = tf.matmul(w_t, w)
-        substraction = tf.subtract(w_t_w, identity)
+        w_t_w = K.dot(w_t, w)
+        subtraction = w_t_w - identity
 
-        loss = tf.nn.l2_loss(substraction)
+        loss = tf.nn.l2_loss(subtraction)
 
         return scale * loss
 
@@ -53,7 +55,7 @@ def spectral_normalisation(w, iterations=1):
 
     w_shape = w.shape.as_list()
     w = tf.reshape(w, [-1, w_shape[-1]])
-    u = tf.Variable(name="u", shape=[1,w_shape[-1]], initial_value=tf.initializers.RandomNormal(stddev=1.0), trainable=False)
+    u = tf.Variable(name="u",initial_value=tf.initializers.RandomNormal(stddev=1.0)(shape=[1,w_shape[-1]]), trainable=False)
 
     u_hat = u
     v_hat = None
@@ -77,4 +79,21 @@ def spectral_normalisation(w, iterations=1):
 
 def hw_flatten(x):
     #meh
-    return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
+    # return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
+    sh = x.get_shape().as_list()
+    return tf.keras.layers.Reshape((sh[1] * sh[2], sh[3]))(x)
+
+
+
+def discriminator_loss(real, fake):
+    # hinge loss, SAGAN PAPER https://arxiv.org/pdf/1805.08318.pdf
+    real_loss = tf.reduce_mean(tf.nn.relu(1.0 - real)) #todo shoudnt it be -1*tf.reduce_mean(relu(-1+real))?
+    fake_loss = tf.reduce_mean(tf.nn.relu(1.0 + fake)) #todo shoudnt it be -1*tf.reduce_mean(relu(-1-fake))?
+
+    return real_loss + fake_loss
+
+def generator_loss(fake):
+
+    fake_loss = -tf.reduce_mean(fake)
+
+    return fake_loss
