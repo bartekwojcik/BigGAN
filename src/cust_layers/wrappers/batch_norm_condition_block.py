@@ -3,7 +3,7 @@ from tensorflow.keras.layers import Dense, Reshape
 from src.cust_layers.layers.batch_norm_condition import BatchNormCondition
 
 
-def batch_norm_layer(x,z):
+def cond_batch_norm_block(x, z):
 
     _,_,_,c = x.get_shape().as_list()
     beta = Dense(units=c)(z)

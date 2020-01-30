@@ -6,7 +6,7 @@ from src.cust_layers.layers.dense_spectral_norm import DenseSpectralNorm
 weight_init = tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.02)
 
 
-def fully_connected_sn(inputs, units, use_spectral, kernel_regularizer, use_bias=True):
+def fully_connected_sn_block(inputs, units, use_spectral, kernel_regularizer, use_bias=True):
     x = Flatten()(inputs)
 
     if use_spectral:

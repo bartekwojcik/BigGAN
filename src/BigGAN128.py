@@ -1,11 +1,10 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Reshape
-from src.operations import split_vector, orthogonal_regularizer_fully
-from src.cust_layers.wrappers.fully_connected_sn import fully_connected_sn
-from src.cust_layers.wrappers.resblock_up_condition import resblock_up_condition
-
-
-weight_regularizer_fully = orthogonal_regularizer_fully(0.0001)
+from tensorflow.keras.layers import Reshape, BatchNormalization, ReLU, Activation
+from src.operations import split_vector, orthogonal_regularizer_fully, orthogonal_regularizer
+from src.cust_layers.wrappers.fully_connected_sn_block import fully_connected_sn_block
+from src.cust_layers.wrappers.resblock_up_condition_block import resblock_up_condition_block
+from src.cust_layers.wrappers.self_attention_block import self_attention_block
+from src.cust_layers.wrappers.conv_block import conv_block
 
 
 class BigGAN128:
@@ -22,16 +21,18 @@ class BigGAN128:
 
     def define_generator(self, z_dim=120, is_trainig=True):
 
+        weight_regularizer = orthogonal_regularizer(0.0001)
+        weight_regularizer_fully = orthogonal_regularizer_fully(0.0001)
         use_spectral = True
 
-        assert z_dim == 120, "for now i just want 120 noise dimention"
+        assert z_dim == 120, "for now i just want 120 noise dimensions"
 
         in_lat = tf.keras.layers.Input(shape=(z_dim,))
         z_split = split_vector(in_lat, num_of_splits=6, axis=-1)
 
         ch = 16 * self.n_channels
 
-        x = fully_connected_sn(
+        x = fully_connected_sn_block(
             z_split[0],
             units=4 * 4 * ch,
             use_spectral=use_spectral,
@@ -39,168 +40,47 @@ class BigGAN128:
         )
         x = Reshape((4, 4, ch))(x)
 
-        out = resblock_up_condition(x, z_split[1], channels=ch, use_bias=False, use_spectral=use_spectral)
-
-        g_model = tf.keras.models.Model(in_lat, out)
-
-        #delete
-        opt = tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5)
-        g_model.compile(loss="binary_crossentropy", optimizer=opt, metrics=["accuracy"])
-        #end delete
-
-        return g_model
-
-        # x = resblock_up_condition(
-        #     x, z_split[1], channels=ch, use_bias=False, use_spectral=use_spectral
-        # )
-
-    def OLD_define_generator(self, z_dim=120, is_trainig=True):
-
-        in_lat = tf.keras.layers.Input(shape=(z_dim,))
-        use_spectral = True
-
-        assert z_dim == 120, "for now i just want 120 noise dimention"
-
-        # for now i am not conditioning generator (coudnt find any good sources so first i will they way i know it works)
-
-        z_split = tf.split(in_lat, num_or_size_splits=6, axis=-1)
-
-        ch = 16 * self.n_channels
-        x = linear(z_split[0], n_units=4 * 4 * ch)
-
-        x = tf.reshape(x, shape=[-1, 4, 4, ch])
-
-        # todo in these blocs include the generator path
-        x = resblock_up(
-            x,
-            z_split[1],
-            channels=ch,
-            use_bias=False,
-            is_training=is_trainig,
-            use_spectral=use_spectral,
-        )
+        x = resblock_up_condition_block(x, z_split[1], channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
         ch = ch // 2
 
-        x = resblock_up(
-            x,
-            z_split[2],
-            channels=ch,
-            use_bias=False,
-            is_training=is_trainig,
-            use_spectral=use_spectral,
-        )
+        x = resblock_up_condition_block(x, z_split[2], channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
         ch = ch // 2
 
-        x = resblock_up(
-            x,
-            z_split[3],
-            channels=ch,
-            use_bias=False,
-            is_training=is_trainig,
-            use_spectral=use_spectral,
-        )
+        x = resblock_up_condition_block(x, z_split[3], channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
         ch = ch // 2
 
-        x = resblock_up(
-            x,
-            z_split[4],
-            channels=ch,
-            use_bias=False,
-            is_training=is_trainig,
-            use_spectral=use_spectral,
-        )
+        x = resblock_up_condition_block(x, z_split[4], channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
 
-        x = self_attention(x, n_channels=ch, use_spectral=use_spectral)
-
+        x = self_attention_block(x, channels = ch, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
         ch = ch // 2
 
-        x = resblock_up(
-            x,
-            z_split[5],
-            channels=ch,
-            use_bias=False,
-            is_training=is_trainig,
-            use_spectral=use_spectral,
-        )
 
-        x = tf_batch_norm(x, is_trainig)
-        x = tf.nn.relu(x)
-        x = conv(
-            x,
-            channels=3,
-            kernel=3,
-            stride=1,
-            pad=1,
-            use_bias=False,
-            use_spectral=use_spectral,
-        )
+        x = resblock_up_condition_block(x, z_split[5], channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
 
-        out = tf.nn.tanh(x)
+        x = BatchNormalization(momentum=0.9, epsilon=1e-05)(x)
+        x = ReLU()(x)
+        x = conv_block(x, channels= 3, kernel=3, stride=1, padding='same', use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
+
+        out = Activation('tanh')(x)
 
         g_model = tf.keras.models.Model(in_lat, out)
 
         return g_model
+
 
     def define_discriminator(
         self, in_shape=(128, 128, 3), n_classes=1, is_training=True
     ):
-
+        weight_regularizer = orthogonal_regularizer(0.0001)
         use_spectral = True
         ch = self.n_channels
 
         inputs = tf.keras.layers.Input(shape=in_shape)
 
-        a = resblock_down(
-            inputs,
-            channels=ch,
-            use_bias=False,
-            is_training=is_training,
-            use_spectral=use_spectral,
-        )
+        x = reblock_down(x, channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
 
-        b = self_attention(a, n_channels=ch, use_spectral=use_spectral)
 
-        ch = ch * 2
-
-        c = resblock_down(
-            b,
-            channels=ch,
-            use_bias=False,
-            is_training=is_training,
-            use_spectral=use_spectral,
-        )
-        ch = ch * 2
-        d = resblock_down(
-            c,
-            channels=ch,
-            use_bias=False,
-            is_training=is_training,
-            use_spectral=use_spectral,
-        )
-        ch = ch * 2
-        e = resblock_down(
-            d,
-            channels=ch,
-            use_bias=False,
-            is_training=is_training,
-            use_spectral=use_spectral,
-        )
-        ch = ch * 2
-        f = resblock_down(
-            e,
-            channels=ch,
-            use_bias=False,
-            is_training=is_training,
-            use_spectral=use_spectral,
-        )
-
-        g = tf.nn.relu(f)
-
-        h = global_sum_pooling(g)
-
-        i = linear(h, n_units=n_classes, use_spectral_norm=use_spectral)
-
-        d_model = tf.keras.models.Model(inputs, i)
+        d_model = tf.keras.models.Model(inputs, out)
         opt = tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5)
         d_model.compile(loss="binary_crossentropy", optimizer=opt, metrics=["accuracy"])
 

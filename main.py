@@ -111,6 +111,12 @@ if __name__ == '__main__':
 
     g_model = base.define_generator(latent_dim, is_trainig=True)
     plot_model(g_model, to_file="discriminator_model.png")
+
+    stringlist = []
+    g_model.summary(print_fn=stringlist.append)
+    short_model_summary = "\n".join(stringlist)
+
+    print(short_model_summary)
     #d_model = base.define_discriminator()  # default paramters
 
     #gan_model = base.define_gan(g_model,d_model)
