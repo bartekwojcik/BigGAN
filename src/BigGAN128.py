@@ -1,10 +1,15 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Reshape, BatchNormalization, ReLU, Activation
+from tensorflow.keras.layers import Reshape, BatchNormalization, ReLU, Activation, Lambda
+import tensorflow.keras.backend as K
+
 from src.operations import split_vector, orthogonal_regularizer_fully, orthogonal_regularizer
 from src.cust_layers.wrappers.fully_connected_sn_block import fully_connected_sn_block
 from src.cust_layers.wrappers.resblock_up_condition_block import resblock_up_condition_block
 from src.cust_layers.wrappers.self_attention_block import self_attention_block
 from src.cust_layers.wrappers.conv_block import conv_block
+from src.cust_layers.wrappers.discriminator.resblock_down import resblock_down
+
+from src.cust_layers.wrappers.discriminator.resblock import resblock
 
 
 class BigGAN128:
@@ -13,13 +18,13 @@ class BigGAN128:
     """
 
     def __init__(
-        self, n_channels=96, beta_1=0, beta_2=0.999, D_lr=0.0002, G_lr=0.00005
+        self, n_channels=96
     ):
         """Parameters come from Apendix C"""
 
         self.n_channels = n_channels
 
-    def define_generator(self, z_dim=120, is_trainig=True):
+    def define_generator(self, z_dim=120):
 
         weight_regularizer = orthogonal_regularizer(0.0001)
         weight_regularizer_fully = orthogonal_regularizer_fully(0.0001)
@@ -34,7 +39,7 @@ class BigGAN128:
 
         x = fully_connected_sn_block(
             z_split[0],
-            units=4 * 4 * ch,
+            units= 4 * 4 * ch,
             use_spectral=use_spectral,
             kernel_regularizer=weight_regularizer_fully,
         )
@@ -68,17 +73,38 @@ class BigGAN128:
         return g_model
 
 
-    def define_discriminator(
-        self, in_shape=(128, 128, 3), n_classes=1, is_training=True
-    ):
-        weight_regularizer = orthogonal_regularizer(0.0001)
+    def define_discriminator(self, in_shape=(128, 128, 3)):
         use_spectral = True
         ch = self.n_channels
 
         inputs = tf.keras.layers.Input(shape=in_shape)
 
-        x = reblock_down(x, channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=weight_regularizer)
+        x = resblock_down(inputs, channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=None)
 
+        x = self_attention_block(x, channels=ch, use_spectral=use_spectral,kernel_regularizer=None)
+        ch = ch * 2
+
+        x = resblock_down(inputs, channels=ch, use_bias=False, use_spectral=use_spectral,kernel_regularizer=None)
+        ch =  ch * 2
+
+        x = resblock_down(inputs, channels=ch, use_bias=False, use_spectral=use_spectral,
+                          kernel_regularizer=None)
+        ch = ch * 2
+
+        x = resblock_down(inputs, channels=ch, use_bias=False, use_spectral=use_spectral,
+                          kernel_regularizer=None)
+        ch = ch * 2
+
+        x = resblock_down(inputs, channels=ch, use_bias=False, use_spectral=use_spectral,
+                          kernel_regularizer=None)
+
+        x = resblock(x, channel=ch, use_bias=False, use_spectral=use_spectral, kernel_regularizer=None)
+
+        x = ReLU()(x)
+
+        x = Lambda(lambda input: K.sum(input, axis=(1,2)))(x)
+
+        out = fully_connected_sn_block(x, units=1, use_spectral=use_spectral,kernel_regularizer=None, use_bias=True)
 
         d_model = tf.keras.models.Model(inputs, out)
         opt = tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5)
@@ -90,13 +116,13 @@ class BigGAN128:
         # make weights in the discriminator not trainable
         d_model.trainable = False
         # get noise and label inputs from generator model
-        gen_noise, gen_label = g_model.input
+        gen_noise = g_model.input
         # get image output from the generator model
         gen_output = g_model.output
         # connect image output and label input from generator as inputs to discriminator
-        gan_output = d_model([gen_output, gen_label])
+        gan_output = d_model(gen_output)
         # define gan model as taking noise and label and outputting a classification
-        model = tf.keras.Model([gen_noise, gen_label], gan_output)
+        model = tf.keras.Model(gen_noise, gan_output)
         # compile model
         opt = tf.keras.optimizers.Adam(lr=0.0002, beta_1=0.5)
         model.compile(loss="binary_crossentropy", optimizer=opt)

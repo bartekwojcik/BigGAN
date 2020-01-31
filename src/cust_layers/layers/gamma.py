@@ -7,10 +7,6 @@ from tensorflow.keras.layers import Dense, InputSpec, Layer
 
 class Gamma(Layer):
 
-    def __init__(self, output_shape, **kwargs):
-        self.output_dim = output_shape
-        super(Gamma, self).__init__(**kwargs)
-
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.gamma = self.add_weight(name='gamma',
@@ -28,4 +24,5 @@ class Gamma(Layer):
         return out
 
     def compute_output_shape(self, input_shape):
+        print("GAMMA input_shape:", input_shape)
         return input_shape

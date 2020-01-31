@@ -40,10 +40,14 @@ class BatchNormCondition(BatchNormalization):
         if trainig_val == True:
             batch_mean, batch_var = tf.nn.moments(x, [0,1,2])
 
-            ema_mean = K.set_value(self.test_mean, self.test_mean * self.decay + batch_mean * (1 - self.decay))
-            ema_var = K.set_value(self.test_var, self.test_var * self.decay + batch_var * (1 - self.decay))
+            #ema_mean = K.set_value(self.test_mean, self.test_mean * self.decay + batch_mean * (1 - self.decay))
+            #ema_var = K.set_value(self.test_var, self.test_var * self.decay + batch_var * (1 - self.decay))
+
+            ema_mean = tf.compat.v1.assign(self.test_mean, self.test_mean * self.decay + batch_mean * (1 - self.decay))
+            ema_var = tf.compat.v1.assign(self.test_var, self.test_var * self.decay + batch_var * (1 - self.decay))
 
             with tf.control_dependencies([ema_mean, ema_var]):
+
                 output = tf.nn.batch_normalization(x,batch_mean, batch_var, beta, gamma, self.epsilon)
         else:
             output = tf.nn.batch_normalization(x,self.test_mean, self.test_var, beta, gamma, self.epsilon)

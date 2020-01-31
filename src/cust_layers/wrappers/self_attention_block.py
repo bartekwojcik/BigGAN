@@ -15,7 +15,7 @@ def keras_dot(inputs):
 def keras_tranpose(inputs):
     return K.transpose(inputs)
 
-def self_attention_block(x, channels,kernel_regularizer, use_spectral=False, ):
+def self_attention_block(x, channels,kernel_regularizer, use_spectral=False):
     x_shape = x.get_shape().as_list()
     f = conv_block(x, channels // 8, kernel=1, stride=1, use_spectral=use_spectral,kernel_regularizer=kernel_regularizer)
     f = MaxPool2D(pool_size=2, strides=2, padding='same')(f)
@@ -54,7 +54,7 @@ def self_attention_block(x, channels,kernel_regularizer, use_spectral=False, ):
     o = conv_block(o,channels, kernel=1, stride=1, use_spectral=use_spectral,kernel_regularizer=kernel_regularizer)
 
     o_shape = o.get_shape().as_list()
-    out = Gamma(output_shape=(o_shape[1], o_shape[-1]))([o, x])
+    out = Gamma()([o, x])
 
     return out
 

@@ -3,7 +3,7 @@ from tensorflow.keras.layers import BatchNormalization, ReLU, Add
 from src.cust_layers.wrappers.conv_block import conv_block
 
 
-def reblock_down(x_init, channels, use_bias, use_spectral, kernel_regularizer):
+def resblock_down(x_init, channels, use_bias, use_spectral, kernel_regularizer):
 
     x = BatchNormalization(momentum=0.9, epsilon=1e-05)(x_init)
     x = ReLU()(x)
